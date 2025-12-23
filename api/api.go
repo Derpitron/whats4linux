@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"errors"
+
 	"github.com/lugvitc/whats4linux/internal/wa"
 	"github.com/nyaruka/phonenumbers"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -20,7 +22,6 @@ type Group struct {
 
 type Contact struct {
 	JID        string `json:"jid"`
-	Name       string `json:"name"`
 	Short      string `json:"short"`
 	FullName   string `json:"full_name"`
 	PushName   string `json:"push_name"`
@@ -92,27 +93,8 @@ func (a *Api) FetchGroups() ([]Group, error) {
 }
 
 func (a *Api) FetchContacts() ([]Contact, error) {
-	contacts, err := a.waClient.Store.Contacts.GetAllContacts(a.ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	var result []Contact
-	for jid, info := range contacts {
-		result = append(result, Contact{
-			JID:        jid.String(),
-			Name:       info.FullName,
-			Short:      info.FirstName,
-			PushName:   info.PushName,
-			IsBusiness: info.BusinessName != "",
-		})
-	}
-	return result, nil
-}
-
-func (a *Api) Contacts() ([]Contact, error) {
 	if !a.waClient.IsLoggedIn() {
-		return nil, fmt.Errorf("no logged in")
+		return nil, errors.New("not logged in")
 
 	}
 	rawContacts, err := a.waClient.Store.Contacts.GetAllContacts(a.ctx)
@@ -120,6 +102,8 @@ func (a *Api) Contacts() ([]Contact, error) {
 		return nil, err
 	}
 	contacts := make([]Contact, 0, len(rawContacts))
+
+	var result []Contact
 	for jid, c := range rawContacts {
 		rawNum := "+" + jid.User
 		// Parse phone number to use as International Format
@@ -129,10 +113,12 @@ func (a *Api) Contacts() ([]Contact, error) {
 		}
 
 		contacts = append(contacts, Contact{
-			JID:      phonenumbers.Format(num, phonenumbers.INTERNATIONAL),
-			FullName: c.FullName,
-			PushName: c.PushName,
+			JID:        phonenumbers.Format(num, phonenumbers.INTERNATIONAL),
+			FullName:   c.FullName,
+			Short:      c.FirstName,
+			PushName:   c.PushName,
+			IsBusiness: c.BusinessName != "",
 		})
 	}
-	return contacts, nil
+	return result, nil
 }

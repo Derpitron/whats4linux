@@ -27,10 +27,10 @@ export function ChatListScreen() {
                 }));
 
             const contactItems: ChatItem[] = (contacts || [])
-                .filter((c: api.Contact) => c.name || c.push_name || c.short)
+                .filter((c: api.Contact) => c.full_name || c.push_name || c.short)
                 .map((c: api.Contact) => ({
                     id: c.jid,
-                    name: c.name || c.push_name,
+                    name: c.full_name || c.push_name,
                     subtitle: "Available",
                     type: 'contact'
                 }));
