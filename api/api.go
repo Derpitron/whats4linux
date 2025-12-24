@@ -86,7 +86,7 @@ func (a *Api) Login() error {
 	return nil
 }
 
-func (a *Api) FetchwGroups() ([]wa.Group, error) {
+func (a *Api) FetchGroups() ([]wa.Group, error) {
 	groups, err := a.waClient.GetJoinedGroups(a.ctx)
 	if err != nil {
 		return nil, err
