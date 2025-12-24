@@ -14,14 +14,6 @@ import (
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
-type Group struct {
-	JID              string `json:"jid"`
-	Name             string `json:"name"`
-	Topic            string `json:"topic"`
-	OwnerJID         string `json:"owner_jid"`
-	ParticipantCount int    `json:"participant_count"`
-}
-
 type Contact struct {
 	JID        string `json:"jid"`
 	Short      string `json:"short"`
@@ -94,15 +86,15 @@ func (a *Api) Login() error {
 	return nil
 }
 
-func (a *Api) FetchGroups() ([]Group, error) {
+func (a *Api) FetchwGroups() ([]wa.Group, error) {
 	groups, err := a.waClient.GetJoinedGroups(a.ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	var result []Group
+	var result []wa.Group
 	for _, g := range groups {
-		result = append(result, Group{
+		result = append(result, wa.Group{
 			JID:              g.JID.String(),
 			Name:             g.Name,
 			Topic:            g.Topic,
