@@ -1,6 +1,6 @@
 # Whats4Linux
 
-An unofficial whatsapp client for Linux built using the [whatsmeow](https://github.com/tulir/whatsmeow) library.
+An unofficial whatsapp client for Linux built using the [whatsmeow](https://github.com/tulir/whatsmeow) and wails library.
 
 ## License
 
