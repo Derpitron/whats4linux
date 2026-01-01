@@ -25,8 +25,8 @@ const MaxMessageCacheSize = 50
 
 type MessageStore struct {
 	db          *sql.DB
-	msgMap      *cacher.Cacher[types.JID, []Message]    
-	chatListMap *cacher.Cacher[string, []ChatMessage]   
+	msgMap      *cacher.Cacher[types.JID, []Message]
+	chatListMap *cacher.Cacher[string, []ChatMessage]
 	mCache      misc.VMap[string, uint8]
 	lru         []types.JID
 }
@@ -36,14 +36,14 @@ func NewMessageStore() (*MessageStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	msgCacheOpts := &cacher.NewCacherOpts{
 		TimeToLive:    30 * time.Minute,
-		Revaluate:     true,   
+		Revaluate:     true,
 		CleanInterval: 5 * time.Minute,
 	}
 	msgCache := cacher.NewCacher[types.JID, []Message](msgCacheOpts)
-	
+
 	// Configure chat list cache (decentralized, separate from messages)
 	chatListCacheOpts := &cacher.NewCacherOpts{
 		TimeToLive:    5 * time.Minute,
@@ -51,7 +51,7 @@ func NewMessageStore() (*MessageStore, error) {
 		CleanInterval: 1 * time.Minute,
 	}
 	chatListCache := cacher.NewCacher[string, []ChatMessage](chatListCacheOpts)
-	
+
 	ms := &MessageStore{
 		db:          db,
 		msgMap:      msgCache,
@@ -64,7 +64,6 @@ func NewMessageStore() (*MessageStore, error) {
 		return nil, err
 	}
 
-	
 	// if err := ms.loadMessagesFromDB(); err != nil {
 	// 	return nil, err
 	// }
@@ -95,11 +94,11 @@ func (ms *MessageStore) ProcessMessageEvent(msg *events.Message) {
 
 	ml = append(ml, m)
 	ms.msgMap.Set(chat, ml)
-	
+
 	// Update LRU and enforce MaxSize
 	ms.updateLRU(chat)
 	ms.enforceMaxSize()
-	
+
 	ms.chatListMap.Delete("chatlist")
 
 	err := ms.insertMessageToDB(&m)
@@ -244,7 +243,7 @@ func (ms *MessageStore) GetChatList() []ChatMessage {
 	if cachedList, ok := ms.chatListMap.Get("chatlist"); ok {
 		return cachedList
 	}
-	
+
 	rows, err := ms.db.Query(query.SelectChatList)
 	if err != nil {
 		return []ChatMessage{}
@@ -309,9 +308,9 @@ func (ms *MessageStore) GetChatList() []ChatMessage {
 			MessageTime: ts,
 		})
 	}
-	
+
 	ms.chatListMap.Set("chatlist", chatList)
-	
+
 	return chatList
 }
 
@@ -334,8 +333,6 @@ func (ms *MessageStore) enforceMaxSize() {
 		ms.lru = ms.lru[:MaxMessageCacheSize]
 	}
 }
-
-
 
 func (ms *MessageStore) loadMessagesFromDB() error {
 	rows, err := ms.db.Query(query.SelectAllMessages)
