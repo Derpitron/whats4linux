@@ -6,6 +6,7 @@ import { useMessageStore, useUIStore } from "../store"
 import { MessageList, type MessageListHandle } from "../components/chat/MessageList"
 import { ChatHeader } from "../components/chat/ChatHeader"
 import { ChatInput } from "../components/chat/ChatInput"
+import clsx from "clsx"
 
 interface ChatDetailProps {
   chatId: string
@@ -14,12 +15,14 @@ interface ChatDetailProps {
   onBack?: () => void
 }
 
+const PAGE_SIZE = 50
+const START_INDEX = 100000
+
 export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailProps) {
   const { messages, setMessages, updateMessage, prependMessages, setActiveChatId } =
     useMessageStore()
   const { setTypingIndicator, showEmojiPicker, setShowEmojiPicker } = useUIStore()
 
-  const isComposingRef = useRef(false)
   const chatMessages = messages[chatId] || []
   const [inputText, setInputText] = useState("")
   const [pastedImage, setPastedImage] = useState<string | null>(null)
@@ -28,19 +31,20 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
   const [replyingTo, setReplyingTo] = useState<store.Message | null>(null)
   const [typingTimeout, setTypingTimeout] = useState<NodeJS.Timeout | null>(null)
 
-  const START_INDEX = 100000
   const [firstItemIndex, setFirstItemIndex] = useState(START_INDEX)
   const [hasMore, setHasMore] = useState(true)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
-  const [isPrefetching, setIsPrefetching] = useState(false)
   const [initialLoad, setInitialLoad] = useState(true)
+  const [isReady, setIsReady] = useState(false)
+  const [showScrollButton, setShowScrollButton] = useState(false)
 
   const messageListRef = useRef<MessageListHandle>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const emojiPickerRef = useRef<HTMLDivElement>(null) // Added
+  const emojiButtonRef = useRef<HTMLButtonElement>(null) // Added
   const sentMediaCache = useRef<Map<string, string>>(new Map())
-  const emojiPickerRef = useRef<HTMLDivElement>(null)
-  const emojiButtonRef = useRef<HTMLButtonElement>(null)
+  const isComposingRef = useRef(false)
 
   const scrollToBottom = useCallback((instant = false) => {
     requestAnimationFrame(() => {
@@ -48,23 +52,29 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
     })
   }, [])
 
-  const loadInitialMessages = useCallback(() => {
+  const loadInitialMessages = useCallback(async () => {
     setInitialLoad(true)
-    // Load latest 50 messages
-    FetchMessagesPaged(chatId, 50, 0)
-      .then((msgs: store.Message[]) => {
-        const loadedMsgs = msgs || []
-        setMessages(chatId, loadedMsgs)
-        setHasMore(loadedMsgs.length >= 50)
-        setFirstItemIndex(START_INDEX)
-        // Small delay to ensure DOM is ready
-        setTimeout(() => scrollToBottom(true), 100)
+    setIsReady(false)
+    try {
+      const msgs = await FetchMessagesPaged(chatId, PAGE_SIZE, 0)
+      const loadedMsgs = msgs || []
+
+      setMessages(chatId, loadedMsgs)
+      setHasMore(loadedMsgs.length >= PAGE_SIZE)
+      setFirstItemIndex(START_INDEX)
+
+      requestAnimationFrame(() => {
+        setIsReady(true)
+        setInitialLoad(false)
+        scrollToBottom(true)
       })
-      .catch(console.error)
-      .finally(() => setInitialLoad(false))
+    } catch (err) {
+      console.error("Initial load failed:", err)
+      setInitialLoad(false)
+    }
   }, [chatId, setMessages, scrollToBottom])
 
-  const loadMoreMessages = useCallback(() => {
+  const loadMoreMessages = useCallback(async () => {
     if (!hasMore || isLoadingMore) return
 
     const currentMessages = messages[chatId] || []
@@ -72,85 +82,39 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
 
     setIsLoadingMore(true)
     const oldestMessage = currentMessages[0]
+    const beforeTimestamp = Math.floor(new Date(oldestMessage.Info.Timestamp).getTime() / 1000)
 
-    // Convert ISO string to unix timestamp (seconds)
-    const beforeTimestamp = oldestMessage
-      ? Math.floor(new Date(oldestMessage.Info.Timestamp).getTime() / 1000)
-      : 0
-
-    FetchMessagesPaged(chatId, 50, beforeTimestamp)
-      .then((msgs: store.Message[]) => {
-        if (msgs && msgs.length > 0) {
-          prependMessages(chatId, msgs)
-          setFirstItemIndex(prev => prev - msgs.length)
-          setHasMore(msgs.length >= 50)
-        } else {
-          setHasMore(false)
-        }
-      })
-      .catch(console.error)
-      .finally(() => setIsLoadingMore(false))
+    try {
+      const msgs = await FetchMessagesPaged(chatId, PAGE_SIZE, beforeTimestamp)
+      if (msgs && msgs.length > 0) {
+        prependMessages(chatId, msgs)
+        setFirstItemIndex(prev => prev - msgs.length)
+        setHasMore(msgs.length >= PAGE_SIZE)
+      } else {
+        setHasMore(false)
+      }
+    } catch (err) {
+      console.error("Load more failed:", err)
+    } finally {
+      setIsLoadingMore(false)
+    }
   }, [chatId, hasMore, isLoadingMore, messages, prependMessages])
 
-  const handlePrefetch = useCallback(() => {
-    // Don't prefetch if already loading or no more messages
-    if (!hasMore || isLoadingMore || isPrefetching) return
-
-    const currentMessages = messages[chatId] || []
-    if (currentMessages.length === 0) return
-
-    setIsPrefetching(true)
-    const oldestMessage = currentMessages[0]
-
-    // Convert ISO string to unix timestamp (seconds)
-    const beforeTimestamp = oldestMessage
-      ? Math.floor(new Date(oldestMessage.Info.Timestamp).getTime() / 1000)
-      : 0
-
-    // Prefetch next batch of messages silently
-    FetchMessagesPaged(chatId, 50, beforeTimestamp)
-      .then((msgs: store.Message[]) => {
-        if (msgs && msgs.length > 0) {
-          // Silently prepend messages without changing scroll position
-          prependMessages(chatId, msgs)
-          setFirstItemIndex(prev => prev - msgs.length)
-          setHasMore(msgs.length >= 50)
-        } else {
-          setHasMore(false)
-        }
-      })
-      .catch(console.error)
-      .finally(() => setIsPrefetching(false))
-  }, [chatId, hasMore, isLoadingMore, isPrefetching, messages, prependMessages])
-
-  const handleTrimOldMessages = useCallback(() => {
-    const currentMessages = messages[chatId] || []
-    // When reaching bottom with many messages, reload to initial state
-    if (currentMessages.length > 100) {
-      // Reload the latest 50 messages and reset state
-      FetchMessagesPaged(chatId, 50, 0)
-        .then((msgs: store.Message[]) => {
-          const loadedMsgs = msgs || []
-          setMessages(chatId, loadedMsgs)
-          setHasMore(loadedMsgs.length >= 50)
-          setFirstItemIndex(START_INDEX)
-        })
-        .catch(console.error)
-    }
-  }, [chatId, messages, setMessages])
-
-  const adjustTextareaHeight = () => {
-    const textarea = textareaRef.current
-    if (!textarea) return
-    textarea.style.height = "auto"
-    textarea.style.height = Math.min(textarea.scrollHeight, 192) + "px"
-  }
+  const handleScrollRangeChanged = useCallback(
+    (range: { startIndex: number; endIndex: number }) => {
+      const totalItems = chatMessages.length
+      if (totalItems > 0 && range.endIndex < totalItems - 5) {
+        setShowScrollButton(true)
+      } else {
+        setShowScrollButton(false)
+      }
+    },
+    [chatMessages.length],
+  )
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInputText(e.target.value)
-    adjustTextareaHeight()
 
-    // only send "composing" if we aren't already marked as composing
     if (!isComposingRef.current) {
       isComposingRef.current = true
       setTypingIndicator(chatId, true)
@@ -166,66 +130,6 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
     setTypingTimeout(timeout)
   }
 
-  const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const items = e.clipboardData?.items
-    if (!items) return
-    for (const item of items) {
-      if (item.type.indexOf("image") !== -1) {
-        e.preventDefault()
-        const file = item.getAsFile()
-        if (!file) continue
-        const reader = new FileReader()
-        reader.onload = event => {
-          setPastedImage(event.target?.result as string)
-          setTimeout(adjustTextareaHeight, 0)
-        }
-        reader.readAsDataURL(file)
-        break
-      }
-    }
-  }
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setSelectedFile(file)
-    if (file.type.startsWith("image/")) setSelectedFileType("image")
-    else if (file.type.startsWith("video/")) setSelectedFileType("video")
-    else if (file.type.startsWith("audio/")) setSelectedFileType("audio")
-    else setSelectedFileType("document")
-  }
-
-  const removeSelectedFile = () => {
-    setSelectedFile(null)
-    setPastedImage(null)
-    setSelectedFileType("")
-    if (fileInputRef.current) fileInputRef.current.value = ""
-    setTimeout(adjustTextareaHeight, 0)
-  }
-
-  const handleEmojiClick = (emoji: string) => {
-    setInputText(prev => prev + emoji)
-    setShowEmojiPicker(false)
-    textareaRef.current?.focus()
-    setTimeout(adjustTextareaHeight, 0)
-  }
-
-  const buildContextInfo = (): any | undefined => {
-    if (!replyingTo) return undefined
-
-    const sender = replyingTo.Info.Sender
-    const participant = sender?.User
-      ? `${sender.User}@${sender.Server || "s.whatsapp.net"}`
-      : chatId
-
-    return {
-      stanzaID: replyingTo.Info.ID,
-      participant,
-      remoteJID: chatId,
-      quotedMessage: replyingTo.Content,
-    }
-  }
-
   const handleSendMessage = async () => {
     if (!inputText.trim() && !pastedImage && !selectedFile) return
 
@@ -234,57 +138,31 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
     const fileToSend = selectedFile
     const fileTypeToSend = selectedFileType
     const quotedMessageId = replyingTo?.Info.ID
-    const contextInfo = buildContextInfo()
 
     setInputText("")
     setPastedImage(null)
     setSelectedFile(null)
-    setSelectedFileType("")
     setReplyingTo(null)
-    if (textareaRef.current) textareaRef.current.style.height = "auto"
-
-    const tempId = `temp-${Date.now()}`
-    const tempMsg: any = {
-      Info: { ID: tempId, IsFromMe: true, Timestamp: new Date().toISOString() },
-      Content: imageToSend
-        ? { imageMessage: { caption: textToSend, _tempImage: imageToSend, contextInfo } }
-        : fileToSend
-          ? {
-              [`${fileTypeToSend}Message`]: {
-                caption: textToSend,
-                _tempFile: fileToSend,
-                contextInfo,
-              },
-            }
-          : replyingTo
-            ? { extendedTextMessage: { text: textToSend, contextInfo } }
-            : { conversation: textToSend },
-    }
-
-    setMessages(chatId, [...chatMessages, tempMsg])
-    scrollToBottom()
 
     try {
       if (imageToSend) {
         const base64 = imageToSend.split(",")[1]
-        const newId = await SendMessage(chatId, {
+        await SendMessage(chatId, {
           type: "image",
           base64Data: base64,
           text: textToSend,
           quotedMessageId,
         })
-        if (newId) sentMediaCache.current.set(newId, imageToSend)
       } else if (fileToSend) {
         const reader = new FileReader()
         reader.onload = async event => {
           const base64 = (event.target?.result as string).split(",")[1]
-          const newId = await SendMessage(chatId, {
+          await SendMessage(chatId, {
             type: fileTypeToSend,
             base64Data: base64,
             text: textToSend,
             quotedMessageId,
           })
-          if (newId) sentMediaCache.current.set(newId, event.target?.result as string)
         }
         reader.readAsDataURL(fileToSend)
       } else {
@@ -292,74 +170,69 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
       }
     } catch (err) {
       console.error("Failed to send:", err)
-      setMessages(chatId, chatMessages)
-      setInputText(textToSend)
-      setReplyingTo(replyingTo)
     }
   }
 
   useEffect(() => {
     setActiveChatId(chatId)
-    setFirstItemIndex(START_INDEX)
-    setHasMore(true)
-    setIsLoadingMore(false)
     loadInitialMessages()
   }, [chatId, loadInitialMessages, setActiveChatId])
 
-  // Listen for new messages
   useEffect(() => {
     const unsub = EventsOn("wa:new_message", (data: { chatId: string; message: store.Message }) => {
-      if (data?.chatId && data?.message) {
+      if (data?.chatId === chatId) {
         updateMessage(data.chatId, data.message)
-        // Auto-scroll when new message arrives in current chat
-        if (data.chatId === chatId) {
+        if (!showScrollButton) {
           scrollToBottom(false)
         }
       }
     })
     return () => unsub()
-  }, [chatId, updateMessage, scrollToBottom])
-
-  useEffect(() => {
-    setReplyingTo(null)
-    setInputText("")
-    setPastedImage(null)
-    setSelectedFile(null)
-    setSelectedFileType("")
-    if (textareaRef.current) textareaRef.current.style.height = "auto"
-  }, [chatId])
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        emojiPickerRef.current &&
-        !emojiPickerRef.current.contains(event.target as Node) &&
-        emojiButtonRef.current &&
-        !emojiButtonRef.current.contains(event.target as Node)
-      ) {
-        setShowEmojiPicker(false)
-      }
-    }
-    if (showEmojiPicker) document.addEventListener("mousedown", handleClickOutside)
-    return () => document.removeEventListener("mousedown", handleClickOutside)
-  }, [showEmojiPicker])
+  }, [chatId, updateMessage, scrollToBottom, showScrollButton])
 
   return (
     <div className="flex flex-col h-full bg-[#efeae2] dark:bg-[#0b141a]">
       <ChatHeader chatName={chatName} chatAvatar={chatAvatar} onBack={onBack} />
-      <MessageList
-        ref={messageListRef}
-        chatId={chatId}
-        messages={chatMessages}
-        sentMediaCache={sentMediaCache}
-        onReply={setReplyingTo}
-        onLoadMore={loadMoreMessages}
-        onPrefetch={handlePrefetch}
-        onTrimOldMessages={handleTrimOldMessages}
-        firstItemIndex={firstItemIndex}
-        isLoading={isLoadingMore || initialLoad}
-        hasMore={hasMore}
-      />
+
+      <div className="flex-1 relative overflow-hidden">
+        {(initialLoad || !isReady) && (
+          <div className="absolute inset-0 flex items-center justify-center bg-[#efeae2] dark:bg-[#0b141a] z-50">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-500" />
+          </div>
+        )}
+
+        {showScrollButton && (
+          <button
+            onClick={() => scrollToBottom(false)}
+            className="absolute bottom-4 right-8 bg-white dark:bg-received-bubble-dark-bg p-2 rounded-full shadow-lg border border-gray-200 dark:border-gray-700 z-20 hover:bg-gray-100 dark:hover:bg-[#2a3942] transition-all"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="24"
+              height="24"
+              className="fill-current text-gray-600 dark:text-gray-400"
+            >
+              <path d="M12 16.17L4.83 9L3.41 10.41L12 19L20.59 10.41L19.17 9L12 16.17Z" />
+            </svg>
+          </button>
+        )}
+
+        <div className={clsx("h-full", (!isReady || initialLoad) && "invisible")}>
+          <MessageList
+            ref={messageListRef}
+            chatId={chatId}
+            messages={chatMessages}
+            sentMediaCache={sentMediaCache}
+            onReply={setReplyingTo}
+            onLoadMore={loadMoreMessages}
+            onRangeChanged={handleScrollRangeChanged}
+            firstItemIndex={firstItemIndex}
+            isLoading={isLoadingMore}
+            hasMore={hasMore}
+          />
+        </div>
+      </div>
+
       <ChatInput
         inputText={inputText}
         pastedImage={pastedImage}
@@ -375,11 +248,35 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
         onKeyDown={e =>
           e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleSendMessage())
         }
-        onPaste={handlePaste}
+        onPaste={async e => {
+          const items = e.clipboardData?.items
+          for (const item of items || []) {
+            if (item.type.indexOf("image") !== -1) {
+              const file = item.getAsFile()
+              if (file) {
+                const reader = new FileReader()
+                reader.onload = event => setPastedImage(event.target?.result as string)
+                reader.readAsDataURL(file)
+              }
+            }
+          }
+        }}
         onSendMessage={handleSendMessage}
-        onFileSelect={handleFileSelect}
-        onRemoveFile={removeSelectedFile}
-        onEmojiClick={handleEmojiClick}
+        onFileSelect={e => {
+          const file = e.target.files?.[0]
+          if (file) {
+            setSelectedFile(file)
+            setSelectedFileType(file.type.split("/")[0])
+          }
+        }}
+        onRemoveFile={() => {
+          setSelectedFile(null)
+          setPastedImage(null)
+        }}
+        onEmojiClick={emoji => {
+          setInputText(prev => prev + emoji)
+          setShowEmojiPicker(false)
+        }}
         onToggleEmojiPicker={() => setShowEmojiPicker(!showEmojiPicker)}
         onCancelReply={() => setReplyingTo(null)}
       />
