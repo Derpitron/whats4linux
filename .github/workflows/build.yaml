@@ -41,7 +41,6 @@ jobs:
 
       - name: Build Wails app
         run: |
-          wails doctor
           wails build -platform linux/amd64
           
       - name: Upload build artifact
