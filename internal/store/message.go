@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/gob"
 	"log"
@@ -11,6 +12,7 @@ import (
 	query "github.com/lugvitc/whats4linux/internal/db"
 	"github.com/lugvitc/whats4linux/internal/misc"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
@@ -87,7 +89,27 @@ func (ms *MessageStore) initSchema() error {
 	return err
 }
 
-func (ms *MessageStore) ProcessMessageEvent(msg *events.Message) {
+func updateCanonicalJID(ctx context.Context, js store.LIDStore, jid *types.JID) (changed bool) {
+	if jid == nil {
+		return
+	}
+	if jid.ActualAgent() != types.LIDDomain {
+		return
+	}
+	canonicalJID, err := js.GetPNForLID(ctx, *jid)
+	if err != nil {
+		log.Println("Failed to get PN for LID:", err)
+		return
+	}
+	changed = true
+	*jid = canonicalJID
+	return
+}
+
+func (ms *MessageStore) ProcessMessageEvent(ctx context.Context, sd store.LIDStore, msg *events.Message) {
+	updateCanonicalJID(ctx, sd, &msg.Info.Chat)
+	updateCanonicalJID(ctx, sd, &msg.Info.Sender)
+
 	chat := msg.Info.Chat.User
 
 	m := Message{
@@ -356,6 +378,70 @@ func (ms *MessageStore) updateMessageInDB(msg *Message) error {
 		msg.Info.ID,
 	)
 	return err
+}
+
+func (ms *MessageStore) MigrateLIDToPN(ctx context.Context, sd store.LIDStore) error {
+	rows, err := ms.db.Query(query.SelectAllMessagesInfo)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var (
+		minf   []byte
+		oC, oS string
+	)
+
+	for rows.Next() {
+		minf = minf[:0]
+
+		if err := rows.Scan(&minf); err != nil {
+			continue
+		}
+
+		var messageInfo types.MessageInfo
+		if err := gobDecode(minf, &messageInfo); err != nil {
+			log.Println("Failed to decode message info during LID to PN migration:", err)
+			continue
+		}
+
+		oC = messageInfo.Chat.String()
+		oS = messageInfo.Sender.String()
+
+		cc := updateCanonicalJID(ctx, sd, &messageInfo.Chat)
+		sc := updateCanonicalJID(ctx, sd, &messageInfo.Sender)
+
+		if !cc && !sc {
+			continue
+		}
+
+		msgInfo, err := gobEncode(messageInfo)
+		if err != nil {
+			log.Println("Failed to encode message info during LID to PN migration:", err)
+			continue
+		}
+
+		_, err = ms.db.Exec(query.UpdateMessageInfo,
+			msgInfo,
+			messageInfo.ID,
+		)
+
+		if err != nil {
+			log.Println("Failed to update message during LID to PN migration:", err)
+			continue
+		}
+
+		if cc {
+			log.Printf("Migrated message %s chat from LID %s to PN %s\n",
+				messageInfo.ID, oC, messageInfo.Chat.String())
+		}
+		if sc {
+			log.Printf("Migrated message %s sender from LID %s to PN %s\n",
+				messageInfo.ID, oS, messageInfo.Sender.String())
+		}
+	}
+
+	return nil
 }
 
 func marshalMessageContent(msg *waE2E.Message) ([]byte, error) {

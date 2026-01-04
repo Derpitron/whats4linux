@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -606,7 +605,7 @@ func (a *Api) SendMessage(chatJID string, content MessageContent) (string, error
 		},
 		Message: msgContent,
 	}
-	a.messageStore.ProcessMessageEvent(msgEvent)
+	a.messageStore.ProcessMessageEvent(a.ctx, a.waClient.Store.LIDs, msgEvent)
 
 	// Extract message text for chat list update
 	var messageText string
@@ -649,10 +648,10 @@ func (a *Api) SendMessage(chatJID string, content MessageContent) (string, error
 func (a *Api) mainEventHandler(evt any) {
 	switch v := evt.(type) {
 	case *events.Message:
-		buf, _ := json.Marshal(v)
-		fmt.Println("[Event] Message:", string(buf))
+		// buf, _ := json.Marshal(v)
+		// fmt.Println("[Event] Message:", string(buf))
 
-		a.messageStore.ProcessMessageEvent(v)
+		a.messageStore.ProcessMessageEvent(a.ctx, a.waClient.Store.LIDs, v)
 
 		// Automatically cache images and stickers when they arrive
 		go func() {
@@ -724,6 +723,9 @@ func (a *Api) mainEventHandler(evt any) {
 		// wait here until logged in.
 		a.cw.Initialise(a.waClient)
 		a.waClient.SendPresence(a.ctx, types.PresenceAvailable)
+
+		// Run migration
+		a.messageStore.MigrateLIDToPN(a.ctx, a.waClient.Store.LIDs)
 	case *events.Disconnected:
 		a.waClient.SendPresence(a.ctx, types.PresenceUnavailable)
 
