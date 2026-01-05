@@ -14,6 +14,7 @@ import (
 
 	"github.com/gen2brain/beeep"
 	"github.com/lugvitc/whats4linux/internal/cache"
+	"github.com/lugvitc/whats4linux/internal/markdown"
 	"github.com/lugvitc/whats4linux/internal/misc"
 	"github.com/lugvitc/whats4linux/internal/settings"
 	"github.com/lugvitc/whats4linux/internal/store"
@@ -972,4 +973,8 @@ func (a *Api) DownloadImageToFile(messageID string) error {
 		}
 	}()
 	return nil
+}
+
+func (a *Api) RenderMarkdown(md string) string {
+	return markdown.MarkdownLinesToHTML(md)
 }

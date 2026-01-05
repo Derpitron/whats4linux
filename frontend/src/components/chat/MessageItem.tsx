@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react"
 import { store } from "../../../wailsjs/go/models"
-import { DownloadImageToFile, GetContact } from "../../../wailsjs/go/api/Api"
+import { DownloadImageToFile, GetContact, RenderMarkdown } from "../../../wailsjs/go/api/Api"
 // Temporarily disable markdown parsing
 // import { parseWhatsAppMarkdown } from "../../utils/markdown"
 import { MediaContent } from "./MediaContent"
@@ -47,6 +47,18 @@ export function MessageItem({
   const isSticker = !!content?.stickerMessage
   const isPending = (message as any).isPending || false
   const [senderName, setSenderName] = useState(message.Info.PushName || "Unknown")
+  const [renderedMarkdown, setRenderedMarkdown] = useState<string>("")
+  const [renderedCaptionMarkdown, setRenderedCaptionMarkdown] = useState<string>("")
+
+  // Helper function to render caption with markdown
+  const renderCaption = (caption: string | undefined) => {
+    if (!caption) return null
+    return renderedCaptionMarkdown ? (
+      <div className="mt-1" dangerouslySetInnerHTML={{ __html: renderedCaptionMarkdown }} />
+    ) : (
+      <div className="mt-1">{caption}</div>
+    )
+  }
 
   const handleImageDownload = async () => {
     try {
@@ -104,6 +116,33 @@ export function MessageItem({
     }
   }, [message.Info.Sender, chatId, isFromMe])
 
+
+  // Render markdown
+  useEffect(() => {
+    const textContent = content?.conversation || content?.extendedTextMessage?.text
+    if (textContent) {
+      RenderMarkdown(textContent)
+        .then((html) => setRenderedMarkdown(html))
+        .catch(() => setRenderedMarkdown(textContent))
+    }
+  }, [content?.conversation, content?.extendedTextMessage?.text])
+
+  useEffect(() => {
+    const caption =
+      content?.imageMessage?.caption ||
+      content?.videoMessage?.caption ||
+      content?.documentMessage?.caption
+    if (caption) {
+      RenderMarkdown(caption)
+        .then((html) => setRenderedCaptionMarkdown(html))
+        .catch(() => setRenderedCaptionMarkdown(caption))
+    }
+  }, [
+    content?.imageMessage?.caption,
+    content?.videoMessage?.caption,
+    content?.documentMessage?.caption,
+  ])
+
   const contextInfo =
     content?.extendedTextMessage?.contextInfo ||
     content?.imageMessage?.contextInfo ||
@@ -114,8 +153,13 @@ export function MessageItem({
 
   const renderContent = () => {
     if (!content) return <span className="italic opacity-50">Empty Message</span>
-    else if (content.conversation) return <>{content.conversation}</>
-    else if (content.extendedTextMessage?.text) return <>{content.extendedTextMessage.text}</>
+    else if (content.conversation || content.extendedTextMessage?.text) {
+      return renderedMarkdown ? (
+        <div dangerouslySetInnerHTML={{ __html: renderedMarkdown }} />
+      ) : (
+        <>{content.conversation || content.extendedTextMessage?.text}</>
+      )
+    }
     else if (content.imageMessage)
       return (
         <div className="flex flex-col">
@@ -126,9 +170,7 @@ export function MessageItem({
             sentMediaCache={sentMediaCache}
             onDownload={handleImageDownload}
           />
-          {content.imageMessage.caption && (
-            <div className="mt-1">{content.imageMessage.caption}</div>
-          )}
+          {renderCaption(content.imageMessage.caption)}
         </div>
       )
     else if (content.videoMessage)
@@ -140,9 +182,7 @@ export function MessageItem({
             chatId={chatId}
             sentMediaCache={sentMediaCache}
           />
-          {content.videoMessage.caption && (
-            <div className="mt-1">{content.videoMessage.caption}</div>
-          )}
+          {renderCaption(content.videoMessage.caption)}
         </div>
       )
     else if (content.audioMessage)
@@ -192,7 +232,7 @@ export function MessageItem({
               </svg>
             </button>
           </div>
-          {doc.caption && <div className="mt-1">{doc.caption}</div>}
+          {renderCaption(doc.caption)}
         </div>
       )
     } else if (content.senderKeyDistributionMessage) {
