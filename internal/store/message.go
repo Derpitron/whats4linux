@@ -196,6 +196,9 @@ func (ms *MessageStore) migrateChatlist(ctx context.Context, sd store.LIDStore, 
 		return err
 	}
 	log.Printf("Migrated messages.chat marker from LID %s to PN %s\n", lid.String(), chat.String())
+
+	// delete lid chatlist entry from cache
+	ms.chatListMap.Delete(lid.User)
 }
 
 func (ms *MessageStore) ProcessMessageEvent(ctx context.Context, sd store.LIDStore, msg *events.Message) {
