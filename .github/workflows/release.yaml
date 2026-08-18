@@ -69,6 +69,7 @@ jobs:
         shell: bash
         run: |
           cd systray
+          go mod tidy
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
             go build -o whats4linux_tray.exe .
           else
