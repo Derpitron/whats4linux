@@ -1,6 +1,6 @@
 module github.com/lugvitc/whats4linux
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/gen2brain/beeep v0.11.2

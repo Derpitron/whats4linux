@@ -1,6 +1,6 @@
 module github.com/lugvitc/whats4linux/whats4linux_tray
 
-go 1.25.5
+go 1.26.5
 
 require github.com/getlantern/systray v1.2.3-0.20231110083711-22c167e80905
 

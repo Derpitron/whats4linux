@@ -19,7 +19,7 @@ This document outlines how to get started and what we expect from contributors.
 
 ### Prerequisites
 
-- Go **1.25+**
+- Go **1.26+**
 - Node.js **20.19.6+**
 - Wails v2
 - Platform dependencies:
