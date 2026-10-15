@@ -530,7 +530,7 @@ func (a *Api) mainEventHandler(evt any) {
 			v.Message.GetPollCreationMessageV2() != nil ||
 			v.Message.GetPollCreationMessageV3() != nil
 		if messageID != "" && !v.Info.IsFromMe && !isFeed && !isPoll && v.Message.GetReactionMessage() == nil && !a.windowFocused.Load() &&
-			store.GetNotificationsEnabled() && !a.messageStore.IsChatMuted(v.Info.Chat.String()) {
+			store.GetNotificationsEnabled() && !a.messageStore.IsChatMuted(v.Info.Chat.String()) && !a.messageStore.IsChatArchived(v.Info.Chat.String()){
 			a.startBackground(func() { a.notifyIncoming(v, parsedHTML) })
 		}
 
